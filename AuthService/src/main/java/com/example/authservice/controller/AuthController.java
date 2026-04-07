@@ -4,8 +4,8 @@ import com.example.authservice.dto.request.LoginRequest;
 import com.example.authservice.dto.response.LoginResponse;
 import com.example.common.dto.ApiResponse;
 import com.example.common.handler.HandlerContainer;
-import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,11 +21,6 @@ public class AuthController {
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@RequestBody LoginRequest request) {
         LoginResponse response = handlerContainer.handle(request);
-        return ApiResponse.<LoginResponse>builder()
-            .status(200)
-            .message("OK")
-            .data(response)
-            .timestamp(LocalDateTime.now())
-                .build();
+        return ApiResponse.success(response);
     }
 }

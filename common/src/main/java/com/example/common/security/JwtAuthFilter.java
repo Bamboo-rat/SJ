@@ -1,4 +1,4 @@
-package com.example.walletservice.security;
+package com.example.common.security;
 
 import java.io.IOException;
 import java.util.Set;
