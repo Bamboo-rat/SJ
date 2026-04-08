@@ -1,35 +1,51 @@
-## Hệ thống Ví điện tử
-Kiến trúc Microservice với design patterns là Chain of Responsibility (Handler)
-Security: Sử dụng JWT để quản lý phân quyền và xác thực giao dịch.
-Database: MySQL và Redis để lưu các request tạm thời, chống spam (Idempotency).
+# SJ - Microservice Wallet (hiện trạng)
 
-### Phân tách các nghiệp vụ (Business Services)
-1. Auth Service (Bảo mật):
+## 1) Modules hiện có
 
-Sử dụng Keycloak hoặc Spring Security + JWT.
-Nhiệm vụ: Đăng ký, đăng nhập, cấp phát Token, phân quyền.
+- `APIGateway` (port `8080`)
+- `AuthService` (port `8081`)
+- `WalletService` (port `8082`)
+- `common` (DTO, exception, handler pattern, JWT/CORS dùng chung)
 
-2. Wallet Service (Quản lý ví):
+## 2) Chức năng đã triển khai
 
-Lưu trữ số dư (Balance) của từng người dùng.
-Áp dụng Optimistic Locking để tránh việc 2 request cùng trừ tiền một lúc khiến số dư bị sai.
+- Gateway routing qua Spring Cloud Gateway Server MVC
+- Đăng nhập và phát JWT tại AuthService (`/auth/login`)
+- Endpoint health check:
+	- `/auth/ping`
+	- `/wallet/ping`
+- Security JWT ở Gateway + service con qua `JwtAuthFilter`
+- CORS tập trung trong `common`
 
-3. Transaction Service (Trái tim của hệ thống):
+## 3) Cấu hình route đúng (quan trọng)
 
-Xử lý logic nạp tiền, chuyển tiền, thanh toán.
-Áp dụng Chain of Responsibility (Handler) để kiểm tra các điều kiện thanh toán và Strategy Pattern để tính phí cho từng loại giao dịch.
+Trong `APIGateway/src/main/resources/application.properties` dùng prefix:
 
-4. Notification Service (Thông báo):
+- `spring.cloud.gateway.server.webmvc.routes[...]`
 
-Gửi Email/SMS/Push cho người dùng khi giao dịch xong.
-Nên xử lý bất đồng bộ (Asynchronous) để không làm chậm quá trình thanh toán.
+Không dùng prefix cũ `spring.cloud.gateway.mvc.routes[...]`.
 
-### Cách các Service "nói chuyện" với nhau
+## 4) Chạy dự án
 
-Giao tiếp đồng bộ (Synchronous - OpenFeign): Khi User bấm chuyển tiền, Transaction Service gọi trực tiếp sang Wallet Service để kiểm tra số dư ngay lập tức. Nếu ví không đủ tiền, báo lỗi luôn.
+Tại thư mục root:
 
-Giao tiếp bất đồng bộ (Asynchronous - Kafka/RabbitMQ): Khi giao dịch thành công, Transaction Service chỉ cần "ném" một tin nhắn vào hàng chờ (Queue) rồi báo thành công cho User. Notification Service sẽ tự nhặt tin nhắn đó để gửi mail sau. 
+- `mvn clean install`
 
-### Một số chú ý
+Sau đó chạy từng service (3 terminal):
 
-Nếu Wallet Service trừ tiền thành công nhưng Transaction Service lại sập trước khi lưu lịch sử, tiền của khách sẽ bị mất dấu => áp dụng Saga Pattern
+1. `AuthService`
+2. `WalletService`
+3. `APIGateway`
+
+## 5) Test nhanh qua Gateway
+
+- `GET http://localhost:8080/auth/ping` -> `auth-pong`
+- `GET http://localhost:8080/wallet/ping` -> `wallet-pong`
+- `POST http://localhost:8080/auth/login` -> lấy JWT
+
+## 6) Roadmap (chưa triển khai)
+
+- Nghiệp vụ wallet balance đầy đủ
+- Transaction service
+- Notification service async
+- Redis idempotency / Saga flow

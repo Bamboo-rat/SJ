@@ -1,98 +1,61 @@
-# Hướng dẫn đọc & phân tích code Gateway + Security
+# Gateway + Security (đã cập nhật)
 
-Tài liệu này giải thích những phần mình đã thêm vào API Gateway để bạn (intern) hiểu rõ **tại sao cần**, **luồng code**, và **luồng hoạt động**.
-
----
+Tài liệu này mô tả đúng trạng thái hiện tại của dự án sau khi đã refactor CORS và sửa route Gateway.
 
 ## 1) Mục tiêu
 
-1. **Gateway routing**: Tất cả request đi qua Gateway và được forward đến các service con.
-2. **Security ở Gateway**: Kiểm tra JWT (header `Authorization: Bearer <token>`).
-3. **Ping APIs để test**: `/auth/ping` và `/wallet/ping`.
+1. Tất cả request đi qua Gateway (`8080`).
+2. Gateway định tuyến sang service đích:
+   - AuthService (`8081`)
+   - WalletService (`8082`)
+3. Xác thực bằng JWT theo danh sách `public-paths`.
+4. CORS cấu hình tập trung ở module `common`.
 
----
+## 2) File quan trọng
 
-## 2) Những file quan trọng
+### 2.1 Gateway routing
+- File: `APIGateway/src/main/resources/application.properties`
+- Prefix đúng cho Spring Cloud Gateway Server MVC 5.x:
+  - `spring.cloud.gateway.server.webmvc.routes[0]...`
+  - `spring.cloud.gateway.server.webmvc.routes[1]...`
 
-### 2.1. Routing ở Gateway
-- File: `src/main/resources/application.properties`
-- Các dòng chính:
-  - `spring.cloud.gateway.mvc.routes[0].predicates[0]=Path=/auth/**`
-  - `spring.cloud.gateway.mvc.routes[0].uri=http://localhost:8081`
-  - `spring.cloud.gateway.mvc.routes[1].predicates[0]=Path=/wallet/**`
-  - `spring.cloud.gateway.mvc.routes[1].uri=http://localhost:8082`
+### 2.2 Security
+- Gateway security chain:
+  - `APIGateway/src/main/java/com/example/apigateway/security/SecurityConfig.java`
+- JWT filter dùng chung:
+  - `common/src/main/java/com/example/common/security/JwtAuthFilter.java`
+  - `common/src/main/java/com/example/common/security/JwtService.java`
 
-**Ý nghĩa:**
-- Nếu request bắt đầu bằng `/auth/**` → chuyển sang AuthService (port 8081).
-- Nếu request bắt đầu bằng `/wallet/**` → chuyển sang WalletService (port 8082).
+### 2.3 CORS dùng chung
+- `common/src/main/java/com/example/common/security/CorsConfig.java`
 
-### 2.2. Security Filter (JWT)
-- File: `src/main/java/com/example/apigateway/security/JwtAuthFilter.java`
+## 3) Luồng xử lý request
 
-**Ý nghĩa:**
-- Đây là một filter chạy trước khi request được xử lý.
-- Nếu request không nằm trong danh sách public (`/auth/ping`, `/wallet/ping`, `/auth/login`) thì phải có header:
-  - `Authorization: Bearer <token>`
-- Sai hoặc thiếu → trả `401 Unauthorized`.
+1. Request vào Gateway.
+2. `JwtAuthFilter` kiểm tra request:
+   - Nếu match `app.security.public-paths` → bỏ qua JWT.
+   - Nếu không match → bắt buộc có `Authorization: Bearer <token>` hợp lệ.
+3. Gateway forward theo route `Path=/auth/**` hoặc `Path=/wallet/**`.
+4. Service đích xử lý và trả response.
 
-### 2.3. SecurityConfig
-- File: `src/main/java/com/example/apigateway/security/SecurityConfig.java`
+## 4) Danh sách endpoint public mặc định
 
-**Ý nghĩa:**
-- Tắt CSRF (vì API stateless).
-- `SessionCreationPolicy.STATELESS`: không dùng session.
-- Cho phép public path (ping + login).
-- Các path còn lại cần xác thực bằng JWT (filter).
-
----
-
-## 3) Luồng hoạt động (request flow)
-
-### 3.1. Ví dụ ping public
-1. Client gọi: `GET /auth/ping`
-2. Gateway nhận request
-3. `JwtAuthFilter` bỏ qua vì public path
-4. Route `/auth/**` → forward sang AuthService
-5. AuthService trả `auth-pong`
-
-### 3.2. Ví dụ request cần bảo vệ
-1. Client gọi: `GET /wallet/balance`
-2. Gateway nhận request
-3. `JwtAuthFilter` kiểm tra header `Authorization: Bearer <token>`
-4. Nếu đúng → forward sang WalletService
-5. Nếu sai → trả `401`
-
----
-
-## 4) Vì sao làm như vậy?
-
-- **Gateway là chốt bảo vệ đầu tiên**: nếu request sai, chặn ngay từ đầu → giảm tải service con.
-- **JWT phù hợp thực tế**: thống nhất với AuthService, dễ mở rộng phân quyền.
-- **Tách routing rõ ràng**: sau này mở rộng thêm Transaction/Notification chỉ cần thêm route.
-
----
+- Gateway: `/auth/ping`, `/wallet/ping`, `/auth/login`
+- AuthService: `/auth/ping`, `/auth/login`
+- WalletService: `/wallet/ping`
 
 ## 5) Cách test nhanh
 
-1. Chạy AuthService (8081) và WalletService (8082)
-2. Chạy APIGateway (8080)
-3. Login để lấy token:
-  - `POST http://localhost:8081/auth/login` với body `{"username":"user","password":"password"}`
-4. Test:
-  - `GET http://localhost:8080/auth/ping`
-  - `GET http://localhost:8080/wallet/ping`
-5. Test protected:
-  - `GET http://localhost:8080/wallet/any`
-  - Thêm header `Authorization: Bearer <token>`
+1. Chạy 3 app: AuthService, WalletService, APIGateway.
+2. Test public:
+   - `GET http://localhost:8080/auth/ping`
+   - `GET http://localhost:8080/wallet/ping`
+3. Login lấy token:
+   - `POST http://localhost:8080/auth/login`
+4. Test protected endpoint (khi có endpoint private):
+   - Gọi qua Gateway và thêm `Authorization: Bearer <token>`.
 
----
+## 6) Lưu ý vận hành
 
-## 6) Gợi ý bước tiếp theo cho intern
-
-1. Đưa danh sách public path vào config rõ ràng hơn (YAML hoặc config class).
-2. Thêm log filter ở Gateway để trace request.
-3. Viết unit test cho security filter.
-
----
-
-Nếu muốn, mình có thể hướng dẫn tiếp cách đổi từ API key sang JWT hoặc viết test cho Gateway.
+- Nếu sửa `application.properties` cho route/security, cần restart service tương ứng.
+- Nếu gọi qua Gateway bị `404`, kiểm tra lại prefix route có đúng `spring.cloud.gateway.server.webmvc.routes`.
